@@ -1,17 +1,32 @@
-// Linux stub implementations for ShutdownManager
-// The PS3/PSVita versions have full implementations; on Linux these are no-ops.
-#include "platform/thread/ShutdownManager.h"
+#include "ShutdownManager.h"
 
-#include "platform/thread/C4JThread.h"
+extern "C" {
+void rust_shutdown_manager_request_shutdown();
+void rust_shutdown_manager_request_restart();
+bool rust_shutdown_manager_is_shutdown_requested();
+bool rust_shutdown_manager_is_restart_requested();
+}
+
+ShutdownManager::State& ShutdownManager::GetState() {
+    static State state;
+    return state;
+}
 
 void ShutdownManager::Initialise() {}
-void ShutdownManager::StartShutdown() {}
+
+void ShutdownManager::StartShutdown() {
+    rust_shutdown_manager_request_shutdown();
+}
+
 void ShutdownManager::MainThreadHandleShutdown() {}
 
-void ShutdownManager::HasStarted(ShutdownManager::EThreadId /*threadId*/) {}
-void ShutdownManager::HasStarted(ShutdownManager::EThreadId /*threadId*/,
-                                 C4JThread::EventArray* /*eventArray*/) {}
-bool ShutdownManager::ShouldRun(ShutdownManager::EThreadId /*threadId*/) {
-    return true;
+void ShutdownManager::HasStarted(EThreadId threadId) {}
+
+void ShutdownManager::HasStarted(EThreadId threadId,
+                                  C4JThread::EventArray* eventArray) {}
+
+bool ShutdownManager::ShouldRun(EThreadId threadId) {
+    return !rust_shutdown_manager_is_shutdown_requested();
 }
-void ShutdownManager::HasFinished(ShutdownManager::EThreadId /*threadId*/) {}
+
+void ShutdownManager::HasFinished(EThreadId threadId) {}

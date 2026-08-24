@@ -6,6 +6,29 @@
 #include <string>
 #include <vector>
 
+extern "C" {
+unsigned int rust_stub_storage_crc(const unsigned char* buf, size_t len);
+int rust_stub_storage_request_message_box();
+int rust_stub_storage_get_message_box_result();
+bool rust_stub_storage_set_save_device();
+bool rust_stub_storage_get_save_unique_number(int* out_val);
+bool rust_stub_storage_get_save_unique_filename(char* out_name);
+bool rust_stub_storage_get_save_disabled();
+unsigned int rust_stub_storage_get_save_size();
+void* rust_stub_storage_allocate_save_data(unsigned int bytes);
+void rust_stub_storage_free_save_data(void* ptr);
+bool rust_stub_storage_get_save_device_selected(unsigned int pad);
+int rust_stub_storage_does_save_exist(bool* out_exists);
+bool rust_stub_storage_enough_space_for_min_save_game();
+int rust_stub_storage_get_dlc_offers();
+int rust_stub_storage_get_installed_dlc(int pad, int (*callback)(int, int));
+int rust_stub_storage_read_tms_file();
+bool rust_stub_storage_write_tms_file();
+bool rust_stub_storage_delete_tms_file();
+int rust_stub_storage_tmspp_read_file();
+void rust_stub_storage_save_subfiles(int (*callback)(bool));
+}
+
 namespace platform_internal {
 IPlatformStorage& PlatformStorage_get() {
     static StubStorage instance;
@@ -26,16 +49,18 @@ StubStorage::EMessageResult StubStorage::RequestMessageBox(
     std::function<int(int, const StubStorage::EMessageResult)> callback,
     C4JStringTable* pStringTable, char* pwchFormatString,
     unsigned int focusButton) {
-    return EMessage_ResultAccept;
+    return static_cast<StubStorage::EMessageResult>(
+        rust_stub_storage_request_message_box());
 }
 
 StubStorage::EMessageResult StubStorage::GetMessageBoxResult() {
-    return EMessage_Undefined;
+    return static_cast<StubStorage::EMessageResult>(
+        rust_stub_storage_get_message_box_result());
 }
 
 bool StubStorage::SetSaveDevice(std::function<int(const bool)> callback,
                                 bool bForceResetOfSaveDevice) {
-    return true;
+    return rust_stub_storage_set_save_device();
 }
 
 void StubStorage::Init(unsigned int uiSaveVersion,
@@ -48,24 +73,26 @@ void StubStorage::SetDefaultSaveNameForKeyboardDisplay(
     const char* pwchDefaultSaveName) {}
 void StubStorage::SetSaveTitle(const char* pwchDefaultSaveName) {}
 bool StubStorage::GetSaveUniqueNumber(int* piVal) {
-    if (piVal) *piVal = 0;
-    return true;
+    return rust_stub_storage_get_save_unique_number(piVal);
 }
 bool StubStorage::GetSaveUniqueFilename(char* pszName) {
-    if (pszName) pszName[0] = '\0';
-    return true;
+    return rust_stub_storage_get_save_unique_filename(pszName);
 }
 void StubStorage::SetSaveUniqueFilename(char* szFilename) {}
 void StubStorage::SetState(ESaveGameControlState eControlState,
                            std::function<int(const bool)> callback) {}
 void StubStorage::SetSaveDisabled(bool bDisable) {}
-bool StubStorage::GetSaveDisabled(void) { return false; }
-unsigned int StubStorage::GetSaveSize() { return 0; }
+bool StubStorage::GetSaveDisabled(void) {
+    return rust_stub_storage_get_save_disabled();
+}
+unsigned int StubStorage::GetSaveSize() {
+    return rust_stub_storage_get_save_size();
+}
 void StubStorage::GetSaveData(void* pvData, unsigned int* puiBytes) {
     if (puiBytes) *puiBytes = 0;
 }
 void* StubStorage::AllocateSaveData(unsigned int uiBytes) {
-    return malloc(uiBytes);
+    return rust_stub_storage_allocate_save_data(uiBytes);
 }
 void StubStorage::SetSaveImages(std::uint8_t* pbThumbnail,
                                 unsigned int thumbnailBytes,
@@ -81,12 +108,16 @@ void StubStorage::CopySaveDataToNewSave(std::uint8_t* pbThumbnail,
                                         char* wchNewName,
                                         std::function<int(bool)> callback) {}
 void StubStorage::SetSaveDeviceSelected(unsigned int uiPad, bool bSelected) {}
-bool StubStorage::GetSaveDeviceSelected(unsigned int iPad) { return true; }
-StubStorage::ESaveGameState StubStorage::DoesSaveExist(bool* pbExists) {
-    if (pbExists) *pbExists = false;
-    return ESaveGame_Idle;
+bool StubStorage::GetSaveDeviceSelected(unsigned int iPad) {
+    return rust_stub_storage_get_save_device_selected(iPad);
 }
-bool StubStorage::EnoughSpaceForAMinSaveGame() { return true; }
+StubStorage::ESaveGameState StubStorage::DoesSaveExist(bool* pbExists) {
+    return static_cast<StubStorage::ESaveGameState>(
+        rust_stub_storage_does_save_exist(pbExists));
+}
+bool StubStorage::EnoughSpaceForAMinSaveGame() {
+    return rust_stub_storage_enough_space_for_min_save_game();
+}
 void StubStorage::SetSaveMessageVPosition(float fY) {}
 StubStorage::ESaveGameState StubStorage::GetSavesInfo(
     int iPad,
@@ -126,7 +157,7 @@ void StubStorage::SetDLCPackageRoot(char* pszDLCRoot) {}
 StubStorage::EDLCStatus StubStorage::GetDLCOffers(
     int iPad, std::function<int(int, std::uint32_t, int)> callback,
     std::uint32_t dwOfferTypesBitmask) {
-    return EDLC_NoOffers;
+    return static_cast<StubStorage::EDLCStatus>(rust_stub_storage_get_dlc_offers());
 }
 unsigned int StubStorage::CancelGetDLCOffers() { return 0; }
 void StubStorage::ClearDLCOffers() {}
@@ -170,16 +201,16 @@ StubStorage::ETMSStatus StubStorage::ReadTMSFile(
     StubStorage::eTMS_FileType eFileType, char* pwchFilename,
     std::uint8_t** ppBuffer, unsigned int* pBufferSize,
     std::function<int(char*, int, bool, int)> callback, int iAction) {
-    return ETMSStatus_Fail;
+    return static_cast<StubStorage::ETMSStatus>(rust_stub_storage_read_tms_file());
 }
 bool StubStorage::WriteTMSFile(int iQuadrant, eGlobalStorage eStorageFacility,
                                char* pwchFilename, std::uint8_t* pBuffer,
                                unsigned int bufferSize) {
-    return false;
+    return rust_stub_storage_write_tms_file();
 }
 bool StubStorage::DeleteTMSFile(int iQuadrant, eGlobalStorage eStorageFacility,
                                 char* pwchFilename) {
-    return false;
+    return rust_stub_storage_delete_tms_file();
 }
 void StubStorage::StoreTMSPathName(char* pwchName) {}
 StubStorage::ETMSStatus StubStorage::TMSPP_ReadFile(
@@ -187,17 +218,11 @@ StubStorage::ETMSStatus StubStorage::TMSPP_ReadFile(
     StubStorage::eTMS_FILETYPEVAL eFileTypeVal, const char* szFilename,
     std::function<int(int, int, PTMSPP_FILEDATA, const char*)> callback,
     int iUserData) {
-    return ETMSStatus_Fail;
+    return static_cast<StubStorage::ETMSStatus>(rust_stub_storage_tmspp_read_file());
 }
+
 unsigned int StubStorage::CRC(unsigned char* buf, int len) {
-    unsigned int crc = 0xFFFFFFFF;
-    for (int i = 0; i < len; i++) {
-        crc ^= buf[i];
-        for (int j = 0; j < 8; j++) {
-            crc = (crc >> 1) ^ (0xEDB88320 & (-(crc & 1)));
-        }
-    }
-    return ~crc;
+    return rust_stub_storage_crc(buf, static_cast<size_t>(len));
 }
 
 int StubStorage::AddSubfile(int regionIndex) {

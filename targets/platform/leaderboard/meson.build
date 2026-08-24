@@ -2,6 +2,7 @@ lib_platform_leaderboard_stub = static_library(
     'platform_leaderboard_stub',
     files('stub/StubLeaderboard.cpp'),
     include_directories: include_directories('../../'),
+    dependencies: [platform_rust_stubs_dep],
     cpp_args: global_cpp_args + global_cpp_defs,
 )
 

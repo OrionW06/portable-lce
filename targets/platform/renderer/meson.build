@@ -3,6 +3,7 @@ platform_renderer_gl_dependencies = [
     dependency('glm'),
     dependency('stb'),
     java_dep,
+    platform_rust_stubs_dep,
 ]
 platform_renderer_gl_defs = []
 

@@ -4,6 +4,7 @@ lib_platform_profile_stub = static_library(
     'platform_profile_stub',
     files('stub/StubProfile.cpp'),
     include_directories: include_directories('../../'),
+    dependencies: [platform_rust_stubs_dep],
     cpp_args: global_cpp_args + global_cpp_defs,
 )
 

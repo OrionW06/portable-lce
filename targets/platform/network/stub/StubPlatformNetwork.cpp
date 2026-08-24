@@ -12,6 +12,30 @@
 #include "platform/network/network.h"
 #include "platform/thread/C4JThread.h"
 
+extern "C" {
+void rust_stub_network_system_flag_init(size_t flag_index_size);
+void rust_stub_network_system_flag_add_player(
+    const void* player_ptr,
+    bool (*same_system_fn)(const void*, const void*));
+void rust_stub_network_system_flag_reset();
+void rust_stub_network_system_flag_set(
+    const void* player_ptr, int index,
+    bool (*same_system_fn)(const void*, const void*));
+bool rust_stub_network_system_flag_get(const void* player_ptr, int index);
+void rust_stub_network_gather_rtt_stats(
+    uint32_t player_count,
+    bool (*is_local_fn)(uint32_t),
+    int (*get_rtt_fn)(uint32_t),
+    char* out_buf, size_t out_capacity);
+bool rust_stub_network_set_local_game(bool is_local);
+void rust_stub_network_set_private_game(bool is_private);
+bool rust_stub_network_is_host();
+bool rust_stub_network_is_in_session();
+void rust_stub_network_set_game_running(bool running);
+bool rust_stub_network_is_leaving_game();
+void rust_stub_network_set_leaving_game(bool leaving);
+}
+
 namespace platform_internal {
 IPlatformNetwork& PlatformNetwork_get() {
     static StubPlatformNetwork instance;
@@ -19,16 +43,17 @@ IPlatformNetwork& PlatformNetwork_get() {
 }
 }  // namespace platform_internal
 
-static bool s_gameRunning = false;
+static bool s_helper_is_same_system(const void* p1, const void* p2) {
+    auto np1 = const_cast<INetworkPlayer*>(reinterpret_cast<const INetworkPlayer*>(p1));
+    auto np2 = const_cast<INetworkPlayer*>(reinterpret_cast<const INetworkPlayer*>(p2));
+    return np1 && np2 && np1->IsSameSystem(np2);
+}
+
 StubNetworkPlayer StubPlatformNetwork::m_players[4];
 
 void StubPlatformNetwork::NotifyPlayerJoined(INetworkPlayer* pQNetPlayer) {
     const char* pszDescription;
 
-    // 4J Stu - We create a fake socket for every where that we need an INBOUND
-    // queue of game data. Outbound is all handled by QNet so we don't need
-    // that. Therefore each client player has one, and the host has one for each
-    // client player.
     bool createFakeSocket = false;
     bool localPlayer = false;
 
@@ -39,15 +64,9 @@ void StubPlatformNetwork::NotifyPlayerJoined(INetworkPlayer* pQNetPlayer) {
         localPlayer = true;
         if (pQNetPlayer->IsHost()) {
             pszDescription = "local host";
-            // 4J Stu - No socket for the localhost as it uses a special
-            // loopback queue
-
             m_machineQNetPrimaryPlayers.push_back(pQNetPlayer);
         } else {
             pszDescription = "local";
-
-            // We need an inbound queue on all local players to receive data
-            // from the host
             createFakeSocket = true;
         }
     } else {
@@ -55,16 +74,12 @@ void StubPlatformNetwork::NotifyPlayerJoined(INetworkPlayer* pQNetPlayer) {
             pszDescription = "remote host";
         } else {
             pszDescription = "remote";
-
-            // If we are the host, then create a fake socket for every remote
-            // player
             if (IsHost()) {
                 createFakeSocket = true;
             }
         }
 
         if (IsHost() && !m_bHostChanged) {
-            // Do we already have a primary player for this system?
             bool systemHasPrimaryPlayer = false;
             for (auto it = m_machineQNetPrimaryPlayers.begin();
                  it < m_machineQNetPrimaryPlayers.end(); ++it) {
@@ -89,8 +104,6 @@ void StubPlatformNetwork::NotifyPlayerJoined(INetworkPlayer* pQNetPlayer) {
             (int)pQNetPlayer->HasVoice(), (int)pQNetPlayer->HasCamera());
 
     if (IsHost()) {
-        // 4J-PB - only the host should do this
-        //		g_NetworkManager.UpdateAndSetGameSessionData();
         SystemFlagAddPlayer(networkPlayer);
     }
 
@@ -98,19 +111,14 @@ void StubPlatformNetwork::NotifyPlayerJoined(INetworkPlayer* pQNetPlayer) {
         if (playerChangedCallback[idx])
             playerChangedCallback[idx](networkPlayer, false);
     }
-
-    if (s_gameRunning) {
-        int localPlayerCount = 0;
-        for (unsigned int idx = 0; idx < XUSER_MAX_COUNT; ++idx) {
-            if (GetLocalPlayerByUserIndex(idx) != nullptr) ++localPlayerCount;
-        }
-    }
 }
 
 bool StubPlatformNetwork::Initialise(CGameNetworkManager* pGameNetworkManager,
                                      int flagIndexSize) {
     m_pGameNetworkManager = pGameNetworkManager;
     m_flagIndexSize = flagIndexSize;
+
+    rust_stub_network_system_flag_init(static_cast<size_t>(flagIndexSize));
 
     for (int i = 0; i < XUSER_MAX_COUNT; i++) {
         playerChangedCallback[i] = nullptr;
@@ -123,13 +131,10 @@ bool StubPlatformNetwork::Initialise(CGameNetworkManager* pGameNetworkManager,
     m_bIsOfflineGame = false;
     m_SessionsUpdatedCallback = nullptr;
 
-    // Success!
     return true;
 }
 
-void StubPlatformNetwork::Terminate() {
-    // TODO: 4jcraft, no release of ressources
-}
+void StubPlatformNetwork::Terminate() {}
 
 int StubPlatformNetwork::GetJoiningReadyPercentage() { return 100; }
 
@@ -139,8 +144,6 @@ bool StubPlatformNetwork::isSystemPrimaryPlayer(INetworkPlayer* pQNetPlayer) {
     return true;
 }
 
-// We call this twice a frame, either side of the render call so is a good place
-// to "tick" things
 void StubPlatformNetwork::DoWork() {}
 
 int StubPlatformNetwork::GetPlayerCount() { return 1; }
@@ -164,7 +167,7 @@ bool StubPlatformNetwork::RemoveLocalPlayerByUserIndex(int userIndex) {
 
 bool StubPlatformNetwork::IsInStatsEnabledSession() { return true; }
 
-bool StubPlatformNetwork::SessionHasSpace(unsigned int spaceRequired /*= 1*/) {
+bool StubPlatformNetwork::SessionHasSpace(unsigned int spaceRequired) {
     return true;
 }
 
@@ -176,10 +179,10 @@ bool StubPlatformNetwork::LeaveGame(bool bMigrateHost) {
     if (m_bLeavingGame) return true;
 
     m_bLeavingGame = true;
+    rust_stub_network_set_leaving_game(true);
 
-    // If we are the host wait for the game server to end
     if (IsHost() && g_NetworkManager.ServerStoppedValid()) {
-        s_gameRunning = false;
+        rust_stub_network_set_game_running(false);
         g_NetworkManager.ServerStoppedWait();
         g_NetworkManager.ServerStoppedDestroy();
     }
@@ -192,27 +195,22 @@ bool StubPlatformNetwork::_LeaveGame(bool bMigrateHost, bool bLeaveRoom) {
 
 void StubPlatformNetwork::HostGame(
     int localUsersMask, bool bOnlineGame, bool bIsPrivate,
-    unsigned char publicSlots /*= MINECRAFT_NET_MAX_PLAYERS*/,
-    unsigned char privateSlots /*= 0*/) {
-    // #ifdef 0
-    // 4J Stu - We probably did this earlier as well, but just to be sure!
+    unsigned char publicSlots, unsigned char privateSlots) {
     SetLocalGame(!bOnlineGame);
     SetPrivateGame(bIsPrivate);
     SystemFlagReset();
 
-    // Make sure that the Primary Pad is in by default
     localUsersMask |= GetLocalPlayerMask(g_NetworkManager.GetPrimaryPad());
 
     m_bLeavingGame = false;
-    s_gameRunning = true;
+    rust_stub_network_set_leaving_game(false);
+    rust_stub_network_set_game_running(true);
 
     _HostGame(localUsersMask, publicSlots, privateSlots);
-    // #endif
 }
 
 void StubPlatformNetwork::_HostGame(
-    int usersMask, unsigned char publicSlots /*= MINECRAFT_NET_MAX_PLAYERS*/,
-    unsigned char privateSlots /*= 0*/) {}
+    int usersMask, unsigned char publicSlots, unsigned char privateSlots) {}
 
 bool StubPlatformNetwork::_StartGame() { return true; }
 
@@ -223,13 +221,13 @@ int StubPlatformNetwork::JoinGame(FriendSessionInfo* searchResult,
 
 bool StubPlatformNetwork::SetLocalGame(bool isLocal) {
     m_bIsOfflineGame = isLocal;
-
-    return true;
+    return rust_stub_network_set_local_game(isLocal);
 }
 
 void StubPlatformNetwork::SetPrivateGame(bool isPrivate) {
     fprintf(stderr, "Setting as private game: %s\n", isPrivate ? "yes" : "no");
     m_bIsPrivateGame = isPrivate;
+    rust_stub_network_set_private_game(isPrivate);
 }
 
 void StubPlatformNetwork::RegisterPlayerChangedCallback(
@@ -247,51 +245,7 @@ void StubPlatformNetwork::HandleSignInChange() { return; }
 bool StubPlatformNetwork::_RunNetworkGame() { return true; }
 
 void StubPlatformNetwork::UpdateAndSetGameSessionData(
-    INetworkPlayer* pNetworkPlayerLeaving /*= nullptr*/) {
-    // 	uint32_t playerCount = m_player->GetPlayerCount();
-    //
-    // 	if( this->m_bLeavingGame )
-    // 		return;
-    //
-    // 	if( GetHostPlayer() == nullptr )
-    // 		return;
-    //
-    // 	for(unsigned int i = 0; i < MINECRAFT_NET_MAX_PLAYERS; ++i)
-    // 	{
-    // 		if( i < playerCount )
-    // 		{
-    // 			INetworkPlayer *pNetworkPlayer = GetPlayerByIndex(i);
-    //
-    // 			// We can call this from NotifyPlayerLeaving but at that
-    // point the player is still considered in the session
-    // if( pNetworkPlayer != pNetworkPlayerLeaving )
-    // 			{
-    // 				m_hostGameSessionData.players[i] =
-    // ((NetworkPlayerXbox *)pNetworkPlayer)->GetUID();
-    //
-    // 				char *temp;
-    // 				temp = (char *)wstring_to_string(
-    // pNetworkPlayer->GetOnlineName() );
-    // 				memcpy(m_hostGameSessionData.szPlayers[i],temp,XUSER_NAME_SIZE);
-    // 			}
-    // 			else
-    // 			{
-    // 				m_hostGameSessionData.players[i] = nullptr;
-    // 				memset(m_hostGameSessionData.szPlayers[i],0,XUSER_NAME_SIZE);
-    // 			}
-    // 		}
-    // 		else
-    // 		{
-    // 			m_hostGameSessionData.players[i] = nullptr;
-    // 			memset(m_hostGameSessionData.szPlayers[i],0,XUSER_NAME_SIZE);
-    // 		}
-    // 	}
-    //
-    // 	m_hostGameSessionData.hostPlayerUID = ((NetworkPlayerXbox
-    // *)GetHostPlayer())->GetQNetPlayer()->GetXuid();
-    // 	m_hostGameSessionData.m_uiGameHostSettings =
-    // app.GetGameHostOption(eGameHostOption_All);
-}
+    INetworkPlayer* pNetworkPlayerLeaving) {}
 
 bool StubPlatformNetwork::RemoveLocalPlayer(INetworkPlayer* pNetworkPlayer) {
     return true;
@@ -299,11 +253,7 @@ bool StubPlatformNetwork::RemoveLocalPlayer(INetworkPlayer* pNetworkPlayer) {
 
 StubPlatformNetwork::PlayerFlags::PlayerFlags(INetworkPlayer* pNetworkPlayer,
                                               unsigned int count) {
-    // 4J Stu - Don't assert, just make it a multiple of 8! This count is
-    // calculated from a load of separate values, and makes tweaking
-    // world/render sizes a pain if we hit an assert here
     count = (count + 8 - 1) & ~(8 - 1);
-    // assert( ( count % 8 ) == 0 );
     this->m_pNetworkPlayer = pNetworkPlayer;
     this->flags = new unsigned char[count / 8];
     memset(this->flags, 0, count / 8);
@@ -311,80 +261,40 @@ StubPlatformNetwork::PlayerFlags::PlayerFlags(INetworkPlayer* pNetworkPlayer,
 }
 StubPlatformNetwork::PlayerFlags::~PlayerFlags() { delete[] flags; }
 
-// Add a player to the per system flag storage - if we've already got a player
-// from that system, copy its flags over
 void StubPlatformNetwork::SystemFlagAddPlayer(INetworkPlayer* pNetworkPlayer) {
-    PlayerFlags* newPlayerFlags =
-        new PlayerFlags(pNetworkPlayer, m_flagIndexSize);
-    // If any of our existing players are on the same system, then copy over
-    // flags from that one
-    for (unsigned int i = 0; i < m_playerFlags.size(); i++) {
-        if (pNetworkPlayer->IsSameSystem(m_playerFlags[i]->m_pNetworkPlayer)) {
-            memcpy(newPlayerFlags->flags, m_playerFlags[i]->flags,
-                   m_playerFlags[i]->count / 8);
-            break;
-        }
-    }
-    m_playerFlags.push_back(newPlayerFlags);
+    rust_stub_network_system_flag_add_player(pNetworkPlayer, s_helper_is_same_system);
 }
 
 void StubPlatformNetwork::SystemFlagReset() {
-    for (unsigned int i = 0; i < m_playerFlags.size(); i++) {
-        delete m_playerFlags[i];
-    }
-    m_playerFlags.clear();
+    rust_stub_network_system_flag_reset();
 }
 
-// Set a per system flag - this is done by setting the flag on every player that
-// shares that system
 void StubPlatformNetwork::SystemFlagSet(INetworkPlayer* pNetworkPlayer,
                                         int index) {
-    if ((index < 0) || (index >= m_flagIndexSize)) return;
-    if (pNetworkPlayer == nullptr) return;
-
-    for (unsigned int i = 0; i < m_playerFlags.size(); i++) {
-        if (pNetworkPlayer->IsSameSystem(m_playerFlags[i]->m_pNetworkPlayer)) {
-            m_playerFlags[i]->flags[index / 8] |= (128 >> (index % 8));
-        }
-    }
+    rust_stub_network_system_flag_set(pNetworkPlayer, index, s_helper_is_same_system);
 }
 
-// Get value of a per system flag - can be read from the flags of the passed in
-// player as anything else sent to that system should also have been duplicated
-// here
 bool StubPlatformNetwork::SystemFlagGet(INetworkPlayer* pNetworkPlayer,
                                         int index) {
-    if ((index < 0) || (index >= m_flagIndexSize)) return false;
-    if (pNetworkPlayer == nullptr) {
-        return false;
-    }
-
-    for (unsigned int i = 0; i < m_playerFlags.size(); i++) {
-        if (m_playerFlags[i]->m_pNetworkPlayer == pNetworkPlayer) {
-            return ((m_playerFlags[i]->flags[index / 8] &
-                     (128 >> (index % 8))) != 0);
-        }
-    }
-    return false;
+    return rust_stub_network_system_flag_get(pNetworkPlayer, index);
 }
 
 std::string StubPlatformNetwork::GatherStats() { return ""; }
 
 std::string StubPlatformNetwork::GatherRTTStats() {
-    std::string stats("Rtt: ");
-
-    char stat[32];
-
-    for (unsigned int i = 0; i < GetPlayerCount(); ++i) {
-        INetworkPlayer* pQNetPlayer = GetPlayerByIndex(i);
-
-        if (!pQNetPlayer->IsLocal()) {
-            memset(stat, 0, 32 * sizeof(char));
-            snprintf(stat, 32, "%d: %d/", i, pQNetPlayer->GetCurrentRtt());
-            stats.append(stat);
-        }
-    }
-    return stats;
+    char buf[256] = {0};
+    auto is_local_fn = [](uint32_t idx) -> bool {
+        IPlatformNetwork& net = PlatformNetwork;
+        INetworkPlayer* p = net.GetPlayerByIndex(idx);
+        return p ? p->IsLocal() : true;
+    };
+    auto get_rtt_fn = [](uint32_t idx) -> int {
+        IPlatformNetwork& net = PlatformNetwork;
+        INetworkPlayer* p = net.GetPlayerByIndex(idx);
+        return p ? p->GetCurrentRtt() : 0;
+    };
+    rust_stub_network_gather_rtt_stats(GetPlayerCount(), is_local_fn, get_rtt_fn, buf, sizeof(buf));
+    return std::string(buf);
 }
 
 void StubPlatformNetwork::TickSearch() {}
@@ -395,10 +305,7 @@ void StubPlatformNetwork::SetSearchResultsReady(int resultCount) {}
 
 std::vector<FriendSessionInfo*>* StubPlatformNetwork::GetSessionList(
     int iPad, int localPlayers, bool partyOnly) {
-    std::vector<FriendSessionInfo*>* filteredList =
-        new std::vector<FriendSessionInfo*>();
-    ;
-    return filteredList;
+    return new std::vector<FriendSessionInfo*>();
 }
 
 bool StubPlatformNetwork::GetGameSessionInfo(
@@ -445,7 +352,7 @@ INetworkPlayer* StubPlatformNetwork::getNetworkPlayer(
 }
 
 INetworkPlayer* StubPlatformNetwork::GetLocalPlayerByUserIndex(int userIndex) {
-    if (userIndex != 0) return nullptr;  // 4jcraft: hack
+    if (userIndex != 0) return nullptr;
     return getNetworkPlayer(&m_players[userIndex]);
 }
 
@@ -465,7 +372,7 @@ INetworkPlayer* StubPlatformNetwork::GetHostPlayer() {
     return getNetworkPlayer(&m_players[0]);
 }
 
-bool StubPlatformNetwork::IsHost() { return !m_bHostChanged; }
+bool StubPlatformNetwork::IsHost() { return rust_stub_network_is_host(); }
 
 bool StubPlatformNetwork::JoinGameFromInviteInfo(
     int userIndex, int userMask, const INVITE_INFO* pInviteInfo) {
@@ -482,6 +389,6 @@ void StubPlatformNetwork::SetSessionSubTexturePackId(int id) {
 
 void StubPlatformNetwork::Notify(int ID, uintptr_t Param) {}
 
-bool StubPlatformNetwork::IsInSession() { return s_gameRunning; }
-bool StubPlatformNetwork::IsInGameplay() { return s_gameRunning; }
+bool StubPlatformNetwork::IsInSession() { return rust_stub_network_is_in_session(); }
+bool StubPlatformNetwork::IsInGameplay() { return rust_stub_network_is_in_session(); }
 bool StubPlatformNetwork::IsReadyToPlayOrIdle() { return true; }
