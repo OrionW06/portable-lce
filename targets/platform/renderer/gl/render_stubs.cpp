@@ -1,8 +1,14 @@
 #include "GLRenderer.h"
 
+extern "C" {
+int rust_gl_renderer_cbuff_size();
+int rust_gl_renderer_save_texture_data();
+bool rust_gl_renderer_suspended();
+}
+
 // Command Buffers
 void GLRenderer::CBuffLockStaticCreations() {}
-int GLRenderer::CBuffSize(int) { return 0; }
+int GLRenderer::CBuffSize(int) { return rust_gl_renderer_cbuff_size(); }
 void GLRenderer::CBuffTick() {}
 void GLRenderer::CBuffDeferredModeStart() {}
 void GLRenderer::CBuffDeferredModeEnd() {}
@@ -20,10 +26,10 @@ void GLRenderer::TextureGetStats() {}
 void* GLRenderer::TextureGetTexture(int) { return nullptr; }
 
 int GLRenderer::SaveTextureData(const char*, D3DXIMAGE_INFO*, int*) {
-    return 0;
+    return rust_gl_renderer_save_texture_data();
 }
 int GLRenderer::SaveTextureDataToMemory(void*, int, int*, int, int, int*) {
-    return 0;
+    return rust_gl_renderer_save_texture_data();
 }
 
 // Screen/Image Capturing
@@ -42,5 +48,5 @@ void GLRenderer::Tick() {}
 
 // Lifecycle
 void GLRenderer::Suspend() {}
-bool GLRenderer::Suspended() { return false; }
+bool GLRenderer::Suspended() { return rust_gl_renderer_suspended(); }
 void GLRenderer::Resume() {}

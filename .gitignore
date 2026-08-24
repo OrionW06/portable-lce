@@ -7,12 +7,17 @@
 !/.github-assets/
 !/docs/
 !/targets/
+/targets/platform/rust_stubs/target/*
+/targets/platform/rust_stubs/target/
 !/scripts/
 !/subprojects/
 /subprojects/*
 !/subprojects/*.wrap
 !/subprojects/packagefiles
 /scripts/__pycache__/
+/build/
+target/
+**/target/
 !/.clang-format
 !/.git-blame-ignore-revs
 !/.gitattributes
