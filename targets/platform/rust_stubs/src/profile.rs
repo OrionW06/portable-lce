@@ -107,6 +107,7 @@ pub fn initialise_default_game_settings(game_settings: &mut ProfileGameSettings)
 
 extern "C" {
     fn malloc(size: usize) -> *mut std::ffi::c_void;
+    fn free(ptr: *mut std::ffi::c_void);
     fn memset(ptr: *mut std::ffi::c_void, val: i32, size: usize) -> *mut std::ffi::c_void;
 }
 
@@ -156,7 +157,15 @@ pub extern "C" fn rust_stub_profile_initialise(game_defined_data_size_x4: i32) {
     let data_size = (game_defined_data_size_x4 / 4) as usize;
 
     for i in 0..XUSER_MAX_COUNT {
-        if state.profile_data_ptrs[i].is_null() || state.profile_data_sizes[i] < data_size {
+        if !state.profile_data_ptrs[i].is_null() && state.profile_data_sizes[i] < data_size {
+            unsafe {
+                free(state.profile_data_ptrs[i] as *mut std::ffi::c_void);
+            }
+            state.profile_data_ptrs[i] = std::ptr::null_mut();
+            state.profile_data_sizes[i] = 0;
+        }
+
+        if state.profile_data_ptrs[i].is_null() {
             unsafe {
                 let new_ptr = malloc(data_size) as *mut u8;
                 memset(new_ptr as *mut std::ffi::c_void, 0, data_size);

@@ -1,0 +1,8 @@
+[package]
+name = "rust_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rust_stubs = { path = "../../platform/rust_stubs" }
+rust_minecraft = { path = "../../minecraft/rust_minecraft" }
